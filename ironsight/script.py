@@ -1,10 +1,10 @@
 import sys
 import pandas as pd
-from keras.models import load_model
+from joblib import dump, load
 from jinja2 import Environment, FileSystemLoader
 
 # Load your pre-trained model
-model = load_model('path_to_your_model.h5')
+model = load('.joblib') 
 
 def convert_bam_to_input(bam_file):
     # This function should convert the BAM file to the format expected by your model
@@ -14,13 +14,13 @@ def convert_bam_to_input(bam_file):
 def generate_html_report(prediction):
     # Load the template
     env = Environment(loader=FileSystemLoader('.'))
-    template = env.get_template('report_template.html')
+    template = env.get_template('ironsight/templates/report.html')
 
     # Render the template with the prediction
     report = template.render(prediction=prediction)
 
     # Write the report to a file
-    with open('report.html', 'w') as f:
+    with open('ironsight/templates/report.html', 'w') as f:
         f.write(report)
 
 def main(bam_file):
