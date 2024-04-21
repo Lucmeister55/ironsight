@@ -1,0 +1,2 @@
+[console_scripts]
+ironsight = ironsight.__main__:main

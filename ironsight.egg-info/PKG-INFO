@@ -1,0 +1,15 @@
+Metadata-Version: 2.1
+Name: ironsight
+Version: 1.0.0
+Summary: Differential methylation calling suite for Nanopore methylation calls PycoMeth
+Home-page: https://github.com/Lucmeister55/ironsight,
+Author: Luca Visser
+Author-email: Luca.Visser@UGent.be
+License: GPL
+Classifier: Intended Audience :: Science/Research
+Classifier: Topic :: Scientific/Engineering :: Bio-Informatics
+Classifier: Programming Language :: Python :: 3
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+
+# ironsight

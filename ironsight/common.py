@@ -11,6 +11,8 @@ import datetime
 import logging
 import json
 import gzip
+import subprocess
+import stat
 
 # Local imports
 from ironsight import __version__ as pkg_version
@@ -18,17 +20,6 @@ from ironsight import __name__ as pkg_name
 
 # Third party imports
 import colorlog
-
-# Optional static export deps
-try:
-    from kaleido.scopes.plotly import PlotlyScope
-    from IPython.display import SVG, display
-    
-    STATIC_EXPORT = True
-except (ModuleNotFoundError, ImportError) as E:
-    print("Cannot import dependencies required for static image export")
-    STATIC_EXPORT = False
-    pass
 
 # ~~~~~~~~~~~~~~FUNCTIONS~~~~~~~~~~~~~~#
 def opt_summary(local_opt):
@@ -40,6 +31,37 @@ def opt_summary(local_opt):
     for i, j in local_opt.items():
         d[i] = j
     return d
+
+def assert_column(df, column_name, df_name=''):
+        assert column_name in df.columns, f"'{column_name}' column is missing in {df_name}"
+        assert not df[column_name].isnull().all(), f"'{column_name}' column is empty in {df_name}"
+
+
+def call_bash_script(bash_script_path, *args):
+    # Get the directory of the current script
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+
+    # Construct the path to the bash script
+    bash_script_path = os.path.join(script_dir, bash_script_path)
+
+    # Change the permissions of the bash script to make it executable
+    os.chmod(bash_script_path, stat.S_IRWXU)
+
+    # Create the command by joining the script path and arguments
+    command = [bash_script_path] + list(args)
+
+    # Call the command using subprocess.Popen
+    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    # Get the output and error messages
+    stdout, stderr = process.communicate()
+
+    # Decode the output and error messages
+    stdout = stdout.decode('utf-8')
+    stderr = stderr.decode('utf-8')
+
+    # Return the output and error messages
+    return stdout, stderr
 
 
 def str_join(l, sep="\t", line_end=""):
@@ -221,50 +243,6 @@ def arg_from_docstr(parser, func, arg_name, short_name=None):
     parser.add_argument(*arg_names, **arg_dict)
 
 
-def jhelp(f):
-    """
-    Display a Markdown pretty help message for functions and class methods (default __init__ is a class is passed)
-    jhelp also display default values and type annotations if available.
-    The docstring synthax should follow the same synthax as the one used for this function
-    * f
-        Function or method to display the help message for
-    """
-    # Private import as this is only needed if using jupyter
-    from IPython.display import display, Markdown
-    
-    f_doc = doc_func(f)
-    arg_doc = make_arg_dict(f)
-    
-    # Signature and function documentation
-    s = "**{}** ({})\n\n{}\n\n---\n\n".format(f.__name__, ", ".join(arg_doc.keys()), f_doc)
-    
-    # Args doc
-    for arg_name, arg_val in arg_doc.items():
-        # Arg signature section
-        s += "* **{}**".format(arg_name)
-        if "default" in arg_val:
-            if arg_val["default"] == "":
-                s += ' (default: "")'.format(arg_val["default"])
-            else:
-                s += " (default: {})".format(arg_val["default"])
-        if "required" in arg_val:
-            s += " (required)"
-        if "type" in arg_val:
-            if isinstance(arg_val["type"], type):
-                s += " [{}]".format(arg_val["type"].__name__)
-            elif isinstance(arg_val["type"], list):
-                s += " [list({})]".format(arg_val["type"][0].__name__)
-            else:
-                s += " [{}]".format(arg_val["type"])
-        s += "\n\n"
-        # Arg doc section
-        if "help" in arg_val:
-            s += "{}\n\n".format(arg_val["help"])
-    
-    # Display in Jupyter
-    display(Markdown(s))
-
-
 def head(fp, n=10, sep="\t", max_char_col=50, comment=None):
     """
     Emulate linux head cmd. Handle gziped files and bam files
@@ -399,31 +377,6 @@ def log_list(l, logger, header="", indent="\t"):
         logger(header)
     for i in l:
         logger("{}*{}".format(indent, i))
-
-
-class Kaleido:
-    def __init__(self):
-        # Init scopes
-        if not STATIC_EXPORT:
-            raise ImportError("Static export is not possible due to missing dependencies")
-        self.plotly_scope = PlotlyScope()
-    
-    def render_plotly_svg(self, fig, width=None, height=None):
-        """
-        Function to render a plotly figure in SVG inside jupyter
-        """
-        if STATIC_EXPORT:
-            svg_fig = self.plotly_scope.transform(fig, format="svg", width=width, height=height)
-            return SVG(svg_fig)
-    
-    def export_plotly_svg(self, fig, fn, width=None, height=None):
-        """
-        Function to export a plotly figure to SVG
-        """
-        if STATIC_EXPORT:
-            svg_fig = self.plotly_scope.transform(fig, format="svg", width=width, height=height)
-            with open(fn, mode="wb") as fp:
-                fp.write(svg_fig)
 
 
 # ~~~~~~~~~~~~~~CUSTOM EXCEPTION AND WARN CLASSES~~~~~~~~~~~~~~#

@@ -30,5 +30,5 @@ setup(
     packages=["ironsight"],
     package_dir={"ironsight": "ironsight"},
     package_data={name: ["templates/*"]},
-    entry_points={"console_scripts": ["ironsight=ironsight.__main__:main", "ironsight=ironsight.__main__:main"]},
+    entry_points={"console_scripts": ["ironsight=ironsight.__main__:main"]},
 )
