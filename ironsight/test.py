@@ -1,5 +1,5 @@
 from pathlib import Path
-from Predict_Ferro_Betas import Predict_Ferro_Betas
+from ironsight import Predict_Ferro_Betas
 
 # Define the parameters for Meth_Seg
 # bam_file_list = ['/data/lvisser/modkit/outputs/bam/data_OHMX20230016R_NB2/IMR21nov_R2.sorted.bam',
@@ -9,7 +9,7 @@ from Predict_Ferro_Betas import Predict_Ferro_Betas
 # ids = ['IMR21nov_R2', 'SHP17nov_R2', 'SHY2sept_R1', 'SKN14nov_R2']
 bam_file_list = ['/data/lvisser/modkit/outputs/bam/data_OHMX20230016R_NB2/IMR21nov_R2.sorted.bam']
 ids = ['IMR21nov_R2']
-outdir = '/data/lvisser/ironsight/examples'
+outdir = '/data/lvisser/ironsight/intermediate/processed'
 model_type = "NB"
 
-Predict_Ferro_Betas(bam_file_list, ids, outdir, model_type)
+Predict_Ferro_Betas.predict(bam_file_list, ids, outdir, model_type)

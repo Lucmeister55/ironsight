@@ -25,6 +25,8 @@ import glob
 import shap
 import pickle
 import warnings
+import pkg_resources
+from tqdm import tqdm
 
 # Ignore all warnings
 warnings.filterwarnings("ignore")
@@ -36,115 +38,117 @@ from ironsight.common import *
 # ~~~~~~~~~~~~~~~~~~~~~~~~Helper Functions~~~~~~~~~~~~~~~~~~~~~~~~#
 
 def model_features_to_bed(model, bed_file):
-
     # Extract feature names
     feature_names = model.feature_names_in_
 
     # Open the BED file for writing
     with open(bed_file, 'w') as f:
         # Write each feature name to the BED file
-        for feature in feature_names:
+        for feature in tqdm(feature_names, desc="Writing features to BED file"):
             chrom, positions = feature.split(':')
             chromStart, chromEnd = positions.split('-')
             f.write(f'{chrom}\t{chromStart}\t{chromEnd}\n')
 
 def calculate_beta_values(bam_file, bed_file, output_file, prob_threshold=0.67, mapq_threshold=10):
-    # Load the BED file
-    bed = pybedtools.BedTool(bed_file)
+    try:
+        # Load the BED file
+        bed = pybedtools.BedTool(bed_file)
+        print("Loaded BED file.")
 
-    # Open the output file for writing
-    with open(output_file, 'w') as f:
-        # Write the header
-        f.write('chrom\tchromStart\tchromEnd\tbeta\n')
+        # Open the output file for writing
+        with open(output_file, 'w') as f:
+            print(f"Opened output file: {output_file}")
 
-        # Load the BAM file
-        bam = pysam.AlignmentFile(bam_file)
+            # Write the header
+            f.write('chrom\tchromStart\tchromEnd\tbeta\n')
+            print("Wrote header to output file.")
 
-        # Intersect the BAM file with the BED file
-        for region in bed:
-            chrom, chromStart, chromEnd = region.fields[:3]
-            chromStart = int(chromStart)
-            chromEnd = int(chromEnd)
-            total_cpgs = 0
-            high_prob_cpgs = 0
+            # Load the BAM file
+            bam = pysam.AlignmentFile(bam_file)
+            print("Loaded BAM file.")
 
-            # Initialize an empty list to store the read IDs
-            reads = []
+            # Intersect the BAM file with the BED file
+            for region in bed:
+                chrom, chromStart, chromEnd = region.fields[:3]
+                chromStart = int(chromStart)
+                chromEnd = int(chromEnd)
+                total_cpgs = 0
+                high_prob_cpgs = 0
 
-            cpg_info = []
+                # Initialize an empty list to store the read IDs
+                reads = []
 
-            EXCLUDE_FLAGS = 1796  # Replace this with the sum of the flags you want to exclude
+                cpg_info = []
 
-            # Process each read in the region
-            for read in bam.fetch(chrom, chromStart, chromEnd):
-                # Add the read ID to the list
-                reads.append(read)
+                EXCLUDE_FLAGS = 1796  # Replace this with the sum of the flags you want to exclude
 
-                # Skip unmapped reads and reads with low mapping quality
-                if read.mapping_quality <= mapq_threshold or (read.flag & EXCLUDE_FLAGS):
-                    continue
+                # Process each read in the region
+                for read in bam.fetch(chrom, chromStart, chromEnd):
+                    # Add the read ID to the list
+                    reads.append(read)
 
-                # Calculate the number of CpGs in the read and the number of CpGs with high probability
-                try:
-                    # Get the reference positions of the read
-                    ref_positions = read.get_reference_positions(full_length = True)
+                    # Skip unmapped reads and reads with low mapping quality
+                    if read.mapping_quality <= mapq_threshold or (read.flag & EXCLUDE_FLAGS):
+                        continue
 
-                    ref_positions = [pos + 1 if pos is not None else None for pos in ref_positions]
+                    # Calculate the number of CpGs in the read and the number of CpGs with high probability
+                    try:
+                        # Get the reference positions of the read
+                        ref_positions = read.get_reference_positions(full_length = True)
 
-                    # Get the strand of the read
-                    strand = 1 if read.is_reverse else 0
+                        ref_positions = [pos + 1 if pos is not None else None for pos in ref_positions]
 
-                    if read.modified_bases:
-                        try:
-                            modified_bases = [(ref_positions[pos], round(prob / 255, 2)) for pos, prob in read.modified_bases[('C', strand, 'm')] if pos < len(ref_positions)]
-                        except IndexError:
-                            print(f"Warning: MM tag refers to bases beyond sequence length for read {read.query_name}")
-                            continue
+                        # Get the strand of the read
+                        strand = 1 if read.is_reverse else 0
 
-                        # ref_seq = read.get_reference_sequence()
-                        quality_scores = read.query_qualities
+                        if read.modified_bases:
+                            try:
+                                modified_bases = [(ref_positions[pos], round(prob / 255, 2)) for pos, prob in read.modified_bases[('C', strand, 'm')] if pos < len(ref_positions)]
+                            except IndexError:
+                                continue
 
-                        for i, m in enumerate(modified_bases):
-                            if m[0] is not None and chromStart <= m[0] <= chromEnd:
-                                total_cpgs += 1
-                                index = ref_positions.index(m[0])
-                                # Save the information about the position
-                                cpg_info.append({
-                                    'position': m[0],
-                                    'probability': m[1],
-                                    'read_id': read.query_name,
-                                    'quality_score': quality_scores[index],
-                                })
-                                if m[1] > prob_threshold:
-                                    high_prob_cpgs += 1
-                except KeyError:
-                    continue
-            
-            print(total_cpgs)
+                            # ref_seq = read.get_reference_sequence()
+                            quality_scores = read.query_qualities
 
-            cpg_info = sorted(cpg_info, key=lambda x: x['probability'])
+                            for i, m in enumerate(modified_bases):
+                                if m[0] is not None and chromStart <= m[0] <= chromEnd:
+                                    total_cpgs += 1
+                                    index = ref_positions.index(m[0])
+                                    # Save the information about the position
+                                    cpg_info.append({
+                                        'position': m[0],
+                                        'probability': m[1],
+                                        'read_id': read.query_name,
+                                        'quality_score': quality_scores[index],
+                                    })
+                                    if m[1] > prob_threshold:
+                                        high_prob_cpgs += 1
+                    except KeyError:
+                        continue
+                
+                # print(total_cpgs)
 
-            # Calculate the beta value
-            if total_cpgs > 0:
-                beta = high_prob_cpgs / total_cpgs
-                beta = round(beta, 2)
-            else:
-                beta = 'NA'
+                cpg_info = sorted(cpg_info, key=lambda x: x['probability'])
 
-            # Write the beta value to the output file
-            f.write(f'{chrom}\t{chromStart}\t{chromEnd}\t{beta}\n')
+                # Calculate the beta value
+                if total_cpgs > 0:
+                    beta = high_prob_cpgs / total_cpgs
+                    beta = round(beta, 2)
+                else:
+                    beta = 'NA'
 
-def Predict_Ferro_Betas(bam_file_list, ids, outdir, model_type):
+                # Write the beta value to the output file
+                f.write(f'{chrom}\t{chromStart}\t{chromEnd}\t{beta}\n')
 
-    # Get the directory of the current file
-    current_dir = os.path.dirname(os.path.abspath(__file__))
+            print("Finished processing regions.")
+    except Exception as e:
+        print(f"An error occurred: {e}")
 
-    # Create the output directory if it does not exist
-    os.makedirs(outdir, exist_ok=True)
-
+def load_model(model_type, pkg_dir):
     # Load the model
     if model_type == 'NB':
-        model_folder = os.path.join(current_dir, 'models/NB/')
+        print("Loading model...")
+        model_folder = os.path.join(pkg_dir, 'models/NB/')
         # Get a list of all joblib files in the folder
         joblib_files = glob.glob(model_folder + '*.joblib')
         # Check if there is exactly one joblib file
@@ -152,6 +156,9 @@ def Predict_Ferro_Betas(bam_file_list, ids, outdir, model_type):
             raise ValueError('Expected exactly one joblib file in the folder, but found ' + str(len(joblib_files)))
         # Load the joblib file
         model = joblib.load(joblib_files[0])
+        print("Model loaded.")
+        
+        print("Loading explainer...")
         pkl_files = glob.glob(model_folder + '*.pkl')
 
         # Check if there is exactly one pickle file
@@ -161,22 +168,29 @@ def Predict_Ferro_Betas(bam_file_list, ids, outdir, model_type):
         # Load the pickle file
         with open(pkl_files[0], 'rb') as f:
             explainer = pickle.load(f)
+        print("Explainer loaded.")
+    return model, explainer
 
-    bed_file = os.path.join(current_dir, 'feature_matrices/features.bed')
-    model_features_to_bed(model, bed_file)
+def calculate_all_beta_values(bam_file_list, ids, temp_dir, bed_file):
+    print("Calculating beta values...")
+    print(f"bam_file_list: {bam_file_list}")
+    print(f"ids: {ids}")
+    print(f"temp_dir: {temp_dir}")
+    print(f"bed_file: {bed_file}")
+    print()
+    try:
+        # Calculate beta values for each BAM file
+        for bam_file, id in zip(bam_file_list, ids):
+            print(f"Calculating beta values for {bam_file}...")
+            output_file = os.path.join(temp_dir, f'{id}.betas.tsv')
+            calculate_beta_values(bam_file, bed_file, output_file)
+    except Exception as e:
+        print(f"An error occurred: {e}")  # Print any exceptions
 
-    # Calculate beta values for each BAM file
-    for bam_file, id in zip(bam_file_list, ids):
-        output_file = os.path.join(current_dir, f'feature_matrices/{id}.betas.tsv')
-        calculate_beta_values(bam_file, bed_file, output_file)
-
-    # Read the bed file into a DataFrame
-    bed_df = pd.read_csv(bed_file, sep='\t', header = None)
-    bed_df.columns = ['chrom', 'chromStart', 'chromEnd']
-
+def merge_beta_values_with_bed(bed_df, ids, temp_dir):
     # For each id, merge the beta column from the corresponding betas file with the bed file
-    for id in ids:
-        betas_df = pd.read_csv(os.path.join(current_dir, f'feature_matrices/{id}.betas.tsv'), sep='\t')
+    for id in tqdm(ids, desc="Merging beta values"):
+        betas_df = pd.read_csv(os.path.join(temp_dir, f'{id}.betas.tsv'), sep='\t')
         # Rename the columns of betas_df before the merge operation
         betas_df = betas_df.rename(columns={'beta': f'{id}'})
 
@@ -184,38 +198,132 @@ def Predict_Ferro_Betas(bam_file_list, ids, outdir, model_type):
         bed_df = pd.merge(bed_df, betas_df[['chrom', 'chromStart', 'chromEnd', f'{id}']], on=['chrom', 'chromStart', 'chromEnd'], how='left')
 
     # Save the merged DataFrame
-    bed_df.to_csv(os.path.join(current_dir, 'feature_matrices/betas.tsv'), sep='\t', index=False)
+    bed_df.to_csv(os.path.join(temp_dir, 'betas.tsv'), sep='\t', index=False)
+    
+    return bed_df
 
+def create_feature_matrix(bed_df, ids):
+    print("Creating feature matrix...")
     bed_df["segment_id"] = bed_df.apply(lambda x: f"{x['chrom']}:{x['chromStart']}-{x['chromEnd']}", axis=1)
 
     feature_matrix = bed_df.drop(columns=["chrom", "chromStart", "chromEnd"])
 
+    print("Pivoting rows to columns...")
     # Pivot rows to columns
     feature_matrix = feature_matrix.pivot_table(columns='segment_id', values=[id for id in ids], dropna=False).reset_index()
     feature_matrix.rename(columns={'index':'id'}, inplace = True)
+    
+    print("Replacing NA values with 0...")
     # Replace NA values with 0
     feature_matrix = feature_matrix.fillna(0)
 
+    print("Feature matrix created.")
+    return feature_matrix
+
+def run_prediction_and_shap_analysis(feature_matrix, model, explainer, results_dir, ids):
+    print("Separating features from target variable...")
     # Separate the features from the target variable
     X = feature_matrix.select_dtypes(include=[np.number])
 
     feature_names = model.feature_names_in_
     X = X[feature_names]
 
+    print("Running prediction...")
     # Run the prediction
     predictions = model.predict(X)
 
-    # Compute the SHAP values
+    # Get the prediction probabilities
+    probabilities = model.predict_proba(X)
+
+    # Create labels based on the predictions
+    labels = ['Resistant' if prediction == 1 else 'Sensitive' for prediction in predictions]
+
     shap_values = explainer.shap_values(X)
 
-    # Create a SHAP summary plot
-    shap.summary_plot(shap_values, X, feature_names = X.columns, show=False, plot_size = [7, 4])
-    plt.savefig(os.path.join(outdir, 'summary_plot.png'))
-    plt.clf()  # Clear the current figure
+    # Convert SHAP values to a list of lists
+    shap_values_list = shap_values.tolist()
 
-    # Create a SHAP force plot for the first prediction
-    shap.plots.force(explainer.expected_value, shap_values[0])
-    plt.savefig(os.path.join(outdir, 'force_plot_0.png'))
-    plt.clf()  # Clear the current figure
+    print("Saving predictions, labels, probabilities, and SHAP values to a file...")
+    # Save the predictions, labels, probabilities, and SHAP values to a single file
 
-    print(predictions)
+    results = pd.DataFrame({
+        'id': ids,
+        'prediction': predictions,
+        'label': labels,
+        'probability_S': probabilities[0].round(2),  # Assuming you want the max probability
+        'probability_R': probabilities[1].round(2),  # Assuming you want the max probability
+        'shap_values': shap_values_list,  # Add SHAP values as a new column
+    })
+
+    results_csv_path = os.path.join(results_dir, 'results.csv')
+
+    results.to_csv(results_csv_path, index=False)
+
+    # Return the predictions, labels, probabilities, and SHAP values
+    return results_csv_path, explainer
+
+def predict(bam_file_list, ids, model_type, progress_lines_path, progress_percentage_path, results_dir, temp_dir, pkg_dir):
+
+    steps = [
+        'Checking if the BAM files exist and are accessible...',
+        'Loading the prediction model...',
+        'Writing features to the BED file...',
+        'Calculating beta values for the features...',
+        'Merging beta values...',
+        'Creating the feature matrix...',
+        'Running prediction and SHAP analysis...'
+    ]
+
+    total_steps = len(steps)
+    current_step = 0
+
+    def write_progress():
+        nonlocal current_step
+        with open(progress_lines_path, 'a') as progress_file:
+            progress_file.write(steps[current_step] + '\n')
+        with open(progress_percentage_path, 'w') as progress_file:
+            progress_file.write(f'{((current_step+1)/total_steps)*100}')
+        current_step += 1
+
+    write_progress()
+
+    # Check if the bam files exist and are accessible
+    for bam_file in bam_file_list:
+        if not os.path.isfile(bam_file):
+            raise FileNotFoundError(f"The bam file {bam_file} does not exist or is not accessible.")
+
+    # Remove all files in the temp directory
+    files = glob.glob(os.path.join(temp_dir, '*'))
+    for f in files:
+        os.remove(f)
+
+    # Remove all files in the temp directory
+    files = glob.glob(os.path.join(results_dir, '*'))
+    for f in files:
+        os.remove(f)
+
+    write_progress()
+    model, explainer = load_model(model_type, pkg_dir)
+
+    bed_file = os.path.join(temp_dir, 'features.bed')
+
+    write_progress()
+    model_features_to_bed(model, bed_file)
+
+    write_progress()
+    calculate_all_beta_values(bam_file_list, ids, temp_dir, bed_file)
+
+    # Read the bed file into a DataFrame
+    bed_df = pd.read_csv(bed_file, sep='\t', header = None)
+    bed_df.columns = ['chrom', 'chromStart', 'chromEnd']
+
+    write_progress()
+    bed_df = merge_beta_values_with_bed(bed_df, ids, temp_dir)
+
+    write_progress()
+    feature_matrix = create_feature_matrix(bed_df, ids)
+    
+    write_progress()
+    results_csv_path, explainer = run_prediction_and_shap_analysis(feature_matrix, model, explainer, results_dir, ids)
+
+    return results_csv_path, explainer

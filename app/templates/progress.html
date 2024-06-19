@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta http-equiv="refresh" content="5">
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f4f4f4;
+        }
+        .container {
+            width: 80%;
+            margin: auto;
+            overflow: hidden;
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            padding: 20px 0;
+        }
+        p {
+            text-align: center;
+            font-size: 18px;
+        }
+        .progress {
+            height: 30px;
+        }
+        .progress-bar {
+            line-height: 30px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Progress</h1>
+        <div class="progress">
+            <div class="progress-bar" role="progressbar" style="width: {{ progress_percentage }}%;" aria-valuenow="{{ progress_percentage }}" aria-valuemin="0" aria-valuemax="100"></div>
+        </div>
+        <p>{{ progress_lines | safe }}</p>
+        {% if prediction_done %}
+        <p><a href="{{ url_for('main.results') }}" class="btn btn-primary">Click here to view the results</a></p>
+        {% endif %}
+    </div>
+</body>
+</html>

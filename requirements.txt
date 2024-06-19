@@ -1,0 +1,5 @@
+Flask
+Flask-SQLAlchemy
+celery
+redis
+your_package
